@@ -45,49 +45,55 @@ jobs:
           set -euo pipefail
           sudo apt-get update
 
-          # Wine build essentials + graphics/font + multimedia + USB + Vulkan/OpenGL.
-          # Goal: make ./configure find as many optional features as possible.
-          sudo apt-get install -y --no-install-recommends \
-            build-essential \
-            flex bison \
-            perl python3 \
-            pkg-config gettext \
-            tar xz-utils ca-certificates \
-            \
-            # common build tooling
-            gcc-multilib g++-multilib \
-            \
+          # NOTE:
+          # This repo file currently uses CRLF line endings. Bash line continuations like "\" + newline
+          # can break under CRLF (the "\" is followed by "\r"), causing the next token to execute
+          # as a command (e.g. "gcc-multilib: command not found").
+          # Use a bash array instead of "\" continuations to be CRLF-safe.
+          pkgs=(
+            build-essential
+            flex bison
+            perl python3
+            pkg-config gettext
+            tar xz-utils ca-certificates
+
+            # multilib toolchain (needed for wow64-style builds / 32-bit deps)
+            gcc-multilib g++-multilib
+
             # X11 / graphics headers
-            libx11-dev libxext-dev libxrender-dev libxrandr-dev libxi-dev libxinerama-dev \
-            libxcursor-dev libxcomposite-dev libxdamage-dev libxfixes-dev libxmu-dev libxxf86vm-dev \
-            libxss-dev \
-            \
+            libx11-dev libxext-dev libxrender-dev libxrandr-dev libxi-dev libxinerama-dev
+            libxcursor-dev libxcomposite-dev libxdamage-dev libxfixes-dev libxmu-dev libxxf86vm-dev
+            libxss-dev
+
             # OpenGL / EGL / Mesa
-            mesa-common-dev libgl1-mesa-dev libglu1-mesa-dev libosmesa6-dev \
-            libegl1-mesa-dev libgbm-dev \
-            \
-            # Vulkan (for Wine Vulkan driver; DX11/DX12 stacks commonly rely on Vulkan too)
-            libvulkan-dev vulkan-headers mesa-vulkan-drivers \
-            \
+            mesa-common-dev libgl1-mesa-dev libglu1-mesa-dev libosmesa6-dev
+            libegl1-mesa-dev libgbm-dev
+
+            # Vulkan
+            libvulkan-dev vulkan-headers mesa-vulkan-drivers
+
             # fonts / images
-            libfreetype6-dev libfontconfig1-dev \
-            libjpeg-dev libpng-dev libtiff-dev libgif-dev \
-            \
+            libfreetype6-dev libfontconfig1-dev
+            libjpeg-dev libpng-dev libtiff-dev libgif-dev
+
             # USB / device hotplug
-            libusb-1.0-0-dev libudev-dev \
-            \
+            libusb-1.0-0-dev libudev-dev
+
             # printing, scanning, audio, net
-            libcups2-dev libsane-dev \
-            libpulse-dev \
-            libdbus-1-dev libgphoto2-dev \
-            libkrb5-dev libldap2-dev libpcap-dev \
-            \
+            libcups2-dev libsane-dev
+            libpulse-dev
+            libdbus-1-dev libgphoto2-dev
+            libkrb5-dev libldap2-dev libpcap-dev
+
             # multimedia (ffmpeg + gstreamer)
-            libavcodec-dev libavformat-dev libavutil-dev libswresample-dev libswscale-dev \
-            libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
-            \
+            libavcodec-dev libavformat-dev libavutil-dev libswresample-dev libswscale-dev
+            libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev
+
             # runtime fonts (avoid EULA prompts like ttf-mscorefonts-installer)
             fontconfig fonts-dejavu-core fonts-liberation fonts-noto-core
+          )
+
+          sudo apt-get install -y --no-install-recommends "${pkgs[@]}"
 
       - name: Install build dependencies (macOS)
         if: matrix.platform == 'macos'
@@ -124,6 +130,16 @@ jobs:
           # Vulkan on macOS: headers + MoltenVK (Vulkan-over-Metal)
           brew list vulkan-headers >/dev/null 2>&1 || brew install vulkan-headers
           brew list molten-vk >/dev/null 2>&1 || brew install molten-vk
+
+          # PE cross-compilation tools:
+          # Wine on aarch64 requires a PE toolchain (aarch64-w64-mingw32-*) and llvm-dlltool/lld.
+          # On macOS arm64 runners, install llvm + llvm-mingw and put them on PATH.
+          if [ "${{ matrix.arch }}" = "arm64" ]; then
+            brew list llvm >/dev/null 2>&1 || brew install llvm
+            brew list llvm-mingw >/dev/null 2>&1 || brew install llvm-mingw
+            echo "$(brew --prefix llvm)/bin" >> "$GITHUB_PATH"
+            echo "$(brew --prefix llvm-mingw)/bin" >> "$GITHUB_PATH"
+          fi
 
           # Ensure brewed bison/flex/gettext are found before the system versions
           echo "$(brew --prefix bison)/bin" >> "$GITHUB_PATH"
