@@ -25,8 +25,8 @@ jobs:
             runs_on: ubuntu-latest
           - platform: linux
             arch: arm64
-            # GitHub-hosted ARM runner label (public preview / may require enablement on org)
-            runs_on: ubuntu-24.04-arm64
+            # GitHub-hosted ARM runner label
+            runs_on: ubuntu-24.04-arm
           # macOS
           - platform: macos
             arch: x64
@@ -70,7 +70,9 @@ jobs:
             libegl1-mesa-dev libgbm-dev
 
             # Vulkan
-            libvulkan-dev vulkan-headers mesa-vulkan-drivers
+            # NOTE: On ubuntu-latest (24.04/noble), vulkan-headers is no longer a standalone package.
+            # libvulkan-dev provides the needed headers.
+            libvulkan-dev mesa-vulkan-drivers
 
             # fonts / images
             libfreetype6-dev libfontconfig1-dev
@@ -132,18 +134,17 @@ jobs:
           brew list molten-vk >/dev/null 2>&1 || brew install molten-vk
 
           # PE cross-compilation tools:
-          # Wine on aarch64 requires a PE toolchain (aarch64-w64-mingw32-*) and llvm-dlltool/lld.
-          # On macOS arm64 runners, install llvm + llvm-mingw and put them on PATH (brew formula name/tap varies).
+          # Wine on aarch64 requires PE cross tools (clang -target aarch64-windows + llvm-dlltool + lld).
+          # Homebrew llvm provides llvm-dlltool; lld is a separate formula.
+          #
+          # Avoid `brew tap mstorsjo/llvm-mingw` because it may require git network auth in CI.
           if [ "${{ matrix.arch }}" = "arm64" ]; then
             brew list llvm >/dev/null 2>&1 || brew install llvm
+            brew list lld >/dev/null 2>&1 || brew install lld
 
-            if ! brew list llvm-mingw >/dev/null 2>&1; then
-              brew install llvm-mingw >/dev/null 2>&1 || (brew tap mstorsjo/llvm-mingw && brew install llvm-mingw)
-            fi
-
-            # Prepend (GITHUB_PATH prepends) so configure picks the brewed clang/lld and aarch64-w64-mingw32-* tools
+            # Prepend (GITHUB_PATH prepends) so configure uses brewed clang/llvm-dlltool/lld
             echo "$(brew --prefix llvm)/bin" >> "$GITHUB_PATH"
-            echo "$(brew --prefix llvm-mingw)/bin" >> "$GITHUB_PATH"
+            echo "$(brew --prefix lld)/bin" >> "$GITHUB_PATH"
           fi
 
           # Ensure brewed bison/flex/gettext are found before the system versions
