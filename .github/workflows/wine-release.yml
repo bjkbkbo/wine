@@ -133,10 +133,15 @@ jobs:
 
           # PE cross-compilation tools:
           # Wine on aarch64 requires a PE toolchain (aarch64-w64-mingw32-*) and llvm-dlltool/lld.
-          # On macOS arm64 runners, install llvm + llvm-mingw and put them on PATH.
+          # On macOS arm64 runners, install llvm + llvm-mingw and put them on PATH (brew formula name/tap varies).
           if [ "${{ matrix.arch }}" = "arm64" ]; then
             brew list llvm >/dev/null 2>&1 || brew install llvm
-            brew list llvm-mingw >/dev/null 2>&1 || brew install llvm-mingw
+
+            if ! brew list llvm-mingw >/dev/null 2>&1; then
+              brew install llvm-mingw >/dev/null 2>&1 || (brew tap mstorsjo/llvm-mingw && brew install llvm-mingw)
+            fi
+
+            # Prepend (GITHUB_PATH prepends) so configure picks the brewed clang/lld and aarch64-w64-mingw32-* tools
             echo "$(brew --prefix llvm)/bin" >> "$GITHUB_PATH"
             echo "$(brew --prefix llvm-mingw)/bin" >> "$GITHUB_PATH"
           fi
@@ -220,12 +225,22 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install 64-bit deps (same as normal job)
+        shell: bash
         run: |
+          set -euo pipefail
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            build-essential flex bison perl python3 pkg-config gettext tar xz-utils ca-certificates \
-            gcc-multilib g++-multilib libfreetype6-dev libfontconfig1-dev libgl1-mesa-dev libx11-dev libxcursor-dev \
-            libxi-dev libxext-dev libxrandr-dev libxinerama-dev libxcomposite-dev libxss-dev libvulkan-dev
+
+          # CRLF-safe: avoid "\" line continuations
+          pkgs=(
+            build-essential flex bison perl python3 pkg-config gettext tar xz-utils ca-certificates
+            gcc-multilib g++-multilib
+            libfreetype6-dev libfontconfig1-dev
+            libgl1-mesa-dev
+            libx11-dev libxcursor-dev libxi-dev libxext-dev libxrandr-dev libxinerama-dev libxcomposite-dev libxss-dev
+            libvulkan-dev
+            rsync
+          )
+          sudo apt-get install -y --no-install-recommends "${pkgs[@]}"
 
       - name: Build 64-bit tree (--enable-win64)
         shell: bash
@@ -238,14 +253,20 @@ jobs:
           make install DESTDIR="$PWD/inst64"
 
       - name: Install 32-bit cross deps
+        shell: bash
         run: |
+          set -euo pipefail
           sudo dpkg --add-architecture i386
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            gcc-multilib g++-multilib \
-            libfreetype6-dev:i386 libfontconfig1-dev:i386 \
-            libgl1-mesa-dev:i386 libx11-dev:i386  \
+
+          # CRLF-safe: avoid "\" line continuations
+          pkgs=(
+            gcc-multilib g++-multilib
+            libfreetype6-dev:i386 libfontconfig1-dev:i386
+            libgl1-mesa-dev:i386 libx11-dev:i386
             libxcursor-dev:i386 libxi-dev:i386 libxext-dev:i386 libxrandr-dev:i386
+          )
+          sudo apt-get install -y --no-install-recommends "${pkgs[@]}"
 
       - name: Build 32-bit tree (--with-wine64)
         shell: bash
