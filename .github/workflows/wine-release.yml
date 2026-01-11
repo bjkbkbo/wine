@@ -57,9 +57,6 @@ jobs:
             pkg-config gettext
             tar xz-utils ca-certificates
 
-            # multilib toolchain (needed for wow64-style builds / 32-bit deps)
-            gcc-multilib g++-multilib
-
             # X11 / graphics headers
             libx11-dev libxext-dev libxrender-dev libxrandr-dev libxi-dev libxinerama-dev
             libxcursor-dev libxcomposite-dev libxdamage-dev libxfixes-dev libxmu-dev libxxf86vm-dev
@@ -94,6 +91,12 @@ jobs:
             # runtime fonts (avoid EULA prompts like ttf-mscorefonts-installer)
             fontconfig fonts-dejavu-core fonts-liberation fonts-noto-core
           )
+
+          # gcc-multilib/g++-multilib only exist on amd64; arm64 runners don't provide them.
+          # They are only required for the separate wow64 job, but keeping them on linux/x64 is harmless.
+          if [ "${{ matrix.arch }}" = "x64" ]; then
+            pkgs+=(gcc-multilib g++-multilib)
+          fi
 
           sudo apt-get install -y --no-install-recommends "${pkgs[@]}"
 
@@ -324,7 +327,7 @@ jobs:
           tag_name: ${{ env.DATE }}
           name: Release ${{ env.DATE }}
           files: |
-            dist/**/wine-*.tar.xz
+            dist/**/*.tar.xz
           draft: false
           prerelease: false
           fail_on_unmatched_files: true
