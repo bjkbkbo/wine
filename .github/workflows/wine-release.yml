@@ -96,6 +96,11 @@ jobs:
           # They are only required for the separate wow64 job, but keeping them on linux/x64 is harmless.
           if [ "${{ matrix.arch }}" = "x64" ]; then
             pkgs+=(gcc-multilib g++-multilib)
+
+            # PE cross toolchain: prefer mingw-w64 GCC over clang to avoid occasional clang crashes
+            pkgs+=(mingw-w64 gcc-mingw-w64-x86-64 g++-mingw-w64-x86-64 binutils-mingw-w64-x86-64)
+            # Make clang unavailable, to force mingw-w64-gcc as exclusive PE cross-compiler.
+            sudo rm -f /usr/bin/clang /usr/bin/clang-*
           fi
 
           sudo apt-get install -y --no-install-recommends "${pkgs[@]}"
@@ -136,12 +141,18 @@ jobs:
           brew list vulkan-headers >/dev/null 2>&1 || brew install vulkan-headers
           brew list molten-vk >/dev/null 2>&1 || brew install molten-vk
 
-          # PE cross-compilation tools:
-          # Wine on aarch64 requires PE cross tools (clang -target aarch64-windows + llvm-dlltool + lld).
-          # Homebrew llvm provides llvm-dlltool; lld is a separate formula.
-          #
-          # Avoid `brew tap mstorsjo/llvm-mingw` because it may require git network auth in CI.
+          # PE cross-compilation toolchains (for PE/x64)
+          # Try install mingw-w64 for cross-gcc, fallback error if not present
+          if [ "${{ matrix.arch }}" = "x64" ]; then
+            brew list mingw-w64 >/dev/null 2>&1 || brew install mingw-w64
+            if ! command -v x86_64-w64-mingw32-gcc >/dev/null 2>&1; then
+              echo "::error ::x86_64-w64-mingw32-gcc is required for macOS/x64 to build PE; Homebrew 'mingw-w64' not found or no x86_64-w64-mingw32-gcc in PATH!"
+              echo "::error ::Please install official cross toolchain: https://osdn.net/projects/mingw/releases/ (or check frotznet-cross-toolchains for macOS)."
+              exit 1
+            fi
+          fi
           if [ "${{ matrix.arch }}" = "arm64" ]; then
+            # Homebrew llvm/clang/lld/llvm-dlltool for arm64 PE
             brew list llvm >/dev/null 2>&1 || brew install llvm
             brew list lld >/dev/null 2>&1 || brew install lld
 
@@ -170,6 +181,11 @@ jobs:
 
           if [ "${{ matrix.platform }}" = "linux" ]; then
             CONFIG_FLAGS+=(--with-pulse --without-alsa --without-oss)
+
+            # On linux/x64, force PE cross-compiler to mingw-w64 gcc to avoid clang ICE/segfaults.
+            if [ "${{ matrix.arch }}" = "x64" ]; then
+              CONFIG_FLAGS+=(--with-mingw=x86_64-w64-mingw32-gcc)
+            fi
           fi
 
           if [ "${{ matrix.platform }}" = "macos" ]; then
