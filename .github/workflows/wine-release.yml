@@ -12,6 +12,119 @@ permissions:
   contents: write
 
 jobs:
+  build-linux-x64:
+    name: Build (linux / x64)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies (Linux)
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+
+          # NOTE:
+          # This repo file currently uses CRLF line endings. Bash line continuations like "\" + newline
+          # can break under CRLF (the "\" is followed by "\r"), causing the next token to execute
+          # as a command (e.g. "gcc-multilib: command not found").
+          # Use a bash array instead of "\" continuations to be CRLF-safe.
+          pkgs=(
+            build-essential
+            flex bison
+            perl python3
+            pkg-config gettext
+            tar xz-utils ca-certificates
+
+            # X11 / graphics headers
+            libx11-dev libxext-dev libxrender-dev libxrandr-dev libxi-dev libxinerama-dev
+            libxcursor-dev libxcomposite-dev libxdamage-dev libxfixes-dev libxmu-dev libxxf86vm-dev
+            libxss-dev
+
+            # OpenGL / EGL / Mesa
+            mesa-common-dev libgl1-mesa-dev libglu1-mesa-dev libosmesa6-dev
+            libegl1-mesa-dev libgbm-dev
+
+            # Vulkan
+            libvulkan-dev mesa-vulkan-drivers
+
+            # fonts / images
+            libfreetype6-dev libfontconfig1-dev
+            libjpeg-dev libpng-dev libtiff-dev libgif-dev
+
+            # USB / device hotplug
+            libusb-1.0-0-dev libudev-dev
+
+            # printing, scanning, audio, net
+            libcups2-dev libsane-dev
+            libpulse-dev
+            libdbus-1-dev libgphoto2-dev
+            libkrb5-dev libldap2-dev libpcap-dev
+
+            # multimedia (ffmpeg + gstreamer)
+            libavcodec-dev libavformat-dev libavutil-dev libswresample-dev libswscale-dev
+            libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev
+
+            # runtime fonts (avoid EULA prompts like ttf-mscorefonts-installer)
+            fontconfig fonts-dejavu-core fonts-liberation fonts-noto-core
+
+            # multilib (harmless, but useful for some tools)
+            gcc-multilib g++-multilib
+
+            # PE cross toolchain: prefer mingw-w64 GCC over clang to avoid occasional clang crashes
+            mingw-w64 gcc-mingw-w64-x86-64 g++-mingw-w64-x86-64 binutils-mingw-w64-x86-64
+          )
+
+          # Make clang unavailable, to force mingw-w64-gcc as exclusive PE cross-compiler.
+          sudo rm -f /usr/bin/clang /usr/bin/clang-*
+
+          sudo apt-get install -y --no-install-recommends "${pkgs[@]}"
+
+      - name: Configure (out-of-tree in build/)
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build
+          cd build
+
+          CONFIG_FLAGS=(--prefix=/usr --disable-tests --enable-win64)
+          CONFIG_FLAGS+=(--with-pulse --without-alsa --without-oss)
+          CONFIG_FLAGS+=(--with-mingw=x86_64-w64-mingw32-gcc)
+
+          ../configure "${CONFIG_FLAGS[@]}"
+
+      - name: Build
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd build
+          JOBS="$(nproc)"
+          make -j"$JOBS"
+
+      - name: Install into staging (DESTDIR)
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd build
+          rm -rf install
+          make install DESTDIR="$PWD/install"
+
+      - name: Create .tar.xz package
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd build
+          base="wine-linux-x64"
+          tar -cvf "${base}.tar" -C install .
+          xz -T0 -9 "${base}.tar"
+          ls -la "${base}.tar.xz"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: wine-linux-x64
+          path: build/wine-linux-x64.tar.xz
+
   build:
     name: Build (${{ matrix.platform }} / ${{ matrix.arch }})
     runs-on: ${{ matrix.runs_on }}
@@ -19,10 +132,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # Linux
-          - platform: linux
-            arch: x64
-            runs_on: ubuntu-latest
+          # Linux (non-x64; linux/x64 is built in build-linux-x64)
           - platform: linux
             arch: arm64
             # GitHub-hosted ARM runner label
@@ -240,7 +350,7 @@ jobs:
   build-linux-wow64:
     name: Build wow64 (Linux x64 32+64)
     runs-on: ubuntu-latest
-    needs: build
+    needs: build-linux-x64
     steps:
       - uses: actions/checkout@v4
 
@@ -259,7 +369,16 @@ jobs:
             libx11-dev libxcursor-dev libxi-dev libxext-dev libxrandr-dev libxinerama-dev libxcomposite-dev libxss-dev
             libvulkan-dev
             rsync
+
+            # PE cross toolchains (avoid clang-18 ICE/segfaults)
+            mingw-w64
+            gcc-mingw-w64-x86-64 g++-mingw-w64-x86-64 binutils-mingw-w64-x86-64
+            gcc-mingw-w64-i686 g++-mingw-w64-i686 binutils-mingw-w64-i686
           )
+
+          # Make clang unavailable, to force mingw-w64-gcc as exclusive PE cross-compiler.
+          sudo rm -f /usr/bin/clang /usr/bin/clang-*
+
           sudo apt-get install -y --no-install-recommends "${pkgs[@]}"
 
       - name: Build 64-bit tree (--enable-win64)
@@ -268,7 +387,7 @@ jobs:
           set -euxo pipefail
           mkdir -p build64
           cd build64
-          ../configure --enable-win64 --prefix=/usr
+          ../configure --enable-win64 --disable-tests --prefix=/usr --with-mingw=x86_64-w64-mingw32-gcc
           make -j"$(nproc)"
           make install DESTDIR="$PWD/inst64"
 
@@ -294,7 +413,7 @@ jobs:
           set -euxo pipefail
           mkdir -p build32
           cd build32
-          ../configure --with-wine64=../build64/inst64/usr --prefix=/usr
+          ../configure --with-wine64=../build64/inst64/usr --disable-tests --prefix=/usr --with-mingw=i686-w64-mingw32-gcc
           make -j"$(nproc)"
           make install DESTDIR="$PWD/inst32"
 
@@ -316,7 +435,7 @@ jobs:
 
   release:
     name: Create GitHub Release (YYYYMMDD tag)
-    needs: [build, build-linux-wow64]
+    needs: [build-linux-x64, build, build-linux-wow64]
     runs-on: ubuntu-latest
     permissions:
       contents: write
