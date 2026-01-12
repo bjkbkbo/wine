@@ -101,6 +101,20 @@ jobs:
           JOBS="$(nproc)"
           make -j"$JOBS"
 
+      - name: Ensure runtime data exists (NLS)
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd build
+
+          # When running from the build tree (no make install), Wine needs NLS files in build/nls/.
+          # Some build configurations may not generate them unless explicitly built.
+          make -C nls -j"$(nproc)"
+
+          ls -la nls || true
+          test -f nls/locale.nls
+          test -f nls/l_intl.nls
+
       - name: Create .tar.xz package (build dir)
         shell: bash
         run: |
@@ -313,6 +327,24 @@ jobs:
           fi
           make -j"$JOBS"
 
+      - name: Ensure runtime data exists (NLS)
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd build
+
+          # Ensure NLS exists for running from build tree (no make install)
+          if command -v nproc >/dev/null 2>&1; then
+            JOBS="$(nproc)"
+          else
+            JOBS="$(sysctl -n hw.ncpu)"
+          fi
+          make -C nls -j"$JOBS"
+
+          ls -la nls || true
+          test -f nls/locale.nls
+          test -f nls/l_intl.nls
+
       - name: Create .tar.xz package (build dir)
         shell: bash
         run: |
@@ -374,6 +406,11 @@ jobs:
           ../configure --enable-win64 --disable-tests --prefix=/usr --with-mingw=x86_64-w64-mingw32-gcc
           make -j"$(nproc)"
 
+          # Ensure runtime NLS exists when running from build tree
+          make -C nls -j"$(nproc)"
+          test -f nls/locale.nls
+          test -f nls/l_intl.nls
+
       - name: Install 32-bit cross deps
         shell: bash
         run: |
@@ -398,6 +435,11 @@ jobs:
           cd build32
           ../configure --with-wine64=../build64 --disable-tests --prefix=/usr --with-mingw=i686-w64-mingw32-gcc
           make -j"$(nproc)"
+
+          # Ensure runtime NLS exists when running from build tree
+          make -C nls -j"$(nproc)"
+          test -f nls/locale.nls
+          test -f nls/l_intl.nls
 
       - name: Package build trees (wow64)
         shell: bash
