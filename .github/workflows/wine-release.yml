@@ -413,7 +413,7 @@ jobs:
           set -euxo pipefail
           mkdir -p build32
           cd build32
-          ../configure --with-wine64=../build64/inst64/usr --disable-tests --prefix=/usr --with-mingw=i686-w64-mingw32-gcc
+          ../configure --with-wine64=../build64 --disable-tests --prefix=/usr --with-mingw=i686-w64-mingw32-gcc
           make -j"$(nproc)"
           make install DESTDIR="$PWD/inst32"
 
