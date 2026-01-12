@@ -101,21 +101,13 @@ jobs:
           JOBS="$(nproc)"
           make -j"$JOBS"
 
-      - name: Install into staging (DESTDIR)
-        shell: bash
-        run: |
-          set -euo pipefail
-          cd build
-          rm -rf install
-          make install DESTDIR="$PWD/install"
-
-      - name: Create .tar.xz package
+      - name: Create .tar.xz package (build dir)
         shell: bash
         run: |
           set -euo pipefail
           cd build
           base="wine-linux-x64"
-          tar -cvf "${base}.tar" -C install .
+          tar -cvf "${base}.tar" .
           xz -T0 -9 "${base}.tar"
           ls -la "${base}.tar.xz"
 
@@ -321,15 +313,7 @@ jobs:
           fi
           make -j"$JOBS"
 
-      - name: Install into staging (DESTDIR)
-        shell: bash
-        run: |
-          set -euo pipefail
-          cd build
-          rm -rf install
-          make install DESTDIR="$PWD/install"
-
-      - name: Create .tar.xz package
+      - name: Create .tar.xz package (build dir)
         shell: bash
         run: |
           set -euo pipefail
@@ -337,7 +321,7 @@ jobs:
 
           # Create tar first, then xz-compress -> .tar.xz
           base="wine-${{ matrix.platform }}-${{ matrix.arch }}"
-          tar -cvf "${base}.tar" -C install .
+          tar -cvf "${base}.tar" .
           xz -T0 -9 "${base}.tar"
           ls -la "${base}.tar.xz"
 
@@ -389,7 +373,6 @@ jobs:
           cd build64
           ../configure --enable-win64 --disable-tests --prefix=/usr --with-mingw=x86_64-w64-mingw32-gcc
           make -j"$(nproc)"
-          make install DESTDIR="$PWD/inst64"
 
       - name: Install 32-bit cross deps
         shell: bash
@@ -415,16 +398,12 @@ jobs:
           cd build32
           ../configure --with-wine64=../build64 --disable-tests --prefix=/usr --with-mingw=i686-w64-mingw32-gcc
           make -j"$(nproc)"
-          make install DESTDIR="$PWD/inst32"
 
-      - name: Merge installs & package
+      - name: Package build trees (wow64)
         shell: bash
         run: |
           set -euxo pipefail
-          mkdir -p dist
-          rsync -a build64/inst64/ dist/
-          rsync -a build32/inst32/ dist/
-          tar -cvf wine-wow64-linux-x64.tar -C dist .
+          tar -cvf wine-wow64-linux-x64.tar build64 build32
           xz -T0 -9 wine-wow64-linux-x64.tar
           ls -lh wine-wow64-linux-x64.tar.xz
 
